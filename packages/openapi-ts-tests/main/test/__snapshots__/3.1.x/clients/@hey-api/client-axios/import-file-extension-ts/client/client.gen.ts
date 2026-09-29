@@ -9,6 +9,17 @@ import { getValidRequestBody } from '../core/utils.gen.ts';
 import type { Client, Config, RequestOptions } from './types.gen.ts';
 import { buildUrl, createConfig, mergeConfigs, mergeHeaders, setAuthParams } from './utils.gen.ts';
 
+const isJsonBody = (body: unknown): body is object => {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+  if (Array.isArray(body)) {
+    return true;
+  }
+  const prototype = Object.getPrototypeOf(body);
+  return prototype === Object.prototype || prototype === null;
+};
+
 export const createClient = (config: Config = {}): Client => {
   let _config = mergeConfigs(createConfig(), config);
 
@@ -116,12 +127,20 @@ export const createClient = (config: Config = {}): Client => {
 
   const makeSseFn = (method: Uppercase<HttpMethod>) => async (options: RequestOptions) => {
     const { opts, url } = await beforeRequest(options);
+    let serializedBody = getValidRequestBody(opts);
+    // SSE requests use fetch, which does not serialize objects like axios does
+    if (isJsonBody(serializedBody)) {
+      serializedBody = JSON.stringify(serializedBody);
+      if (!Object.keys(opts.headers).some((key) => key.toLowerCase() === 'content-type')) {
+        opts.headers['Content-Type'] = 'application/json';
+      }
+    }
     return createSseClient({
       ...opts,
       body: opts.body as BodyInit | null | undefined,
       headers: opts.headers as Record<string, string>,
       method,
-      serializedBody: getValidRequestBody(opts) as BodyInit | null | undefined,
+      serializedBody: serializedBody as BodyInit | null | undefined,
       // @ts-expect-error
       signal: opts.signal,
       url,

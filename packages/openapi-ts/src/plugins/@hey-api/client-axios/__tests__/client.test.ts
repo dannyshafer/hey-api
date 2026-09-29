@@ -306,6 +306,65 @@ describe('calling axios instance', () => {
   });
 });
 
+describe('sse', () => {
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockFetch = vi.fn().mockResolvedValue(
+      new Response('data: {"ok":true}\n\n', {
+        headers: { 'Content-Type': 'text/event-stream' },
+      }),
+    );
+    vi.stubGlobal('fetch', mockFetch);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('serializes a JSON body', async () => {
+    const client = createClient({ baseURL: 'https://example.com' });
+    const { stream } = await client.sse.post({
+      body: { message: 'hello' },
+      sseMaxRetryAttempts: 1,
+      url: '/events',
+    });
+    await stream.next();
+
+    const request = mockFetch.mock.calls[0]![0] as Request;
+    expect(await request.text()).toBe('{"message":"hello"}');
+    expect(request.headers.get('Content-Type')).toBe('application/json');
+  });
+
+  it('keeps an explicit Content-Type header', async () => {
+    const client = createClient({ baseURL: 'https://example.com' });
+    const { stream } = await client.sse.post({
+      body: { message: 'hello' },
+      headers: { 'content-type': 'application/vnd.api+json' },
+      sseMaxRetryAttempts: 1,
+      url: '/events',
+    });
+    await stream.next();
+
+    const request = mockFetch.mock.calls[0]![0] as Request;
+    expect(await request.text()).toBe('{"message":"hello"}');
+    expect(request.headers.get('Content-Type')).toBe('application/vnd.api+json');
+  });
+
+  it('does not serialize a string body', async () => {
+    const client = createClient({ baseURL: 'https://example.com' });
+    const { stream } = await client.sse.post({
+      body: 'hello',
+      sseMaxRetryAttempts: 1,
+      url: '/events',
+    });
+    await stream.next();
+
+    const request = mockFetch.mock.calls[0]![0] as Request;
+    expect(await request.text()).toBe('hello');
+  });
+});
+
 // TODO: remove this after confirmation
 describe('confirming axios behaviour for constructing URLs', () => {
   it('resolves relative URLs against baseURL', async () => {
